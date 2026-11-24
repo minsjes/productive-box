@@ -23,13 +23,17 @@ export const createContributedRepoQuery = (username: string) => `
   }
 `;
 
-export const createCommittedDateQuery = (id: string, name: string, owner: string) => `
+export const createCommittedDateQuery = (id: string, name: string, owner: string, cursor?: string) => `
   query {
     repository(owner: "${owner}", name: "${name}") {
       defaultBranchRef {
         target {
           ... on Commit {
-            history(first: 100, author: { id: "${id}" }) {
+            history(first: 100, author: { id: "${id}" }${cursor ? `, after: "${cursor}"` : ''}) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               edges {
                 node {
                   committedDate

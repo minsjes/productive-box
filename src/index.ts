@@ -22,6 +22,9 @@ interface RepoInfo {
   isFork: boolean;
 }
 
+// 100 commits per page; caps each repo at 5,000 commits
+const MAX_PAGES_PER_REPO = 50;
+
 interface Edge {
   node: {
     committedDate: string;
@@ -63,20 +66,33 @@ interface Edge {
   /**
    * Third, get commit time and parse into commit-time/hour diagram
    */
-  const committedTimeResponseMap = await Promise.all(
-    repos.map(({ name, owner }) => githubQuery(createCommittedDateQuery(id, name, owner))),
+  const fetchCommittedDates = async (name: string, owner: string): Promise<string[]> => {
+    const dates: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_PAGES_PER_REPO; page++) {
+      const response = await githubQuery(createCommittedDateQuery(id, name, owner, cursor));
+      const history = response?.data?.repository?.defaultBranchRef?.target?.history;
+      if (!history) break;
+      history.edges.forEach((edge: Edge) => dates.push(edge?.node?.committedDate));
+      if (!history.pageInfo?.hasNextPage) break;
+      cursor = history.pageInfo.endCursor;
+    }
+    return dates;
+  };
+
+  const committedDatesPerRepo = await Promise.all(
+    repos.map(({ name, owner }) => fetchCommittedDates(name, owner)),
   ).catch((error) => console.error(`Unable to get the commit info\n${error}`));
 
-  if (!committedTimeResponseMap) return;
+  if (!committedDatesPerRepo) return;
 
   let morning = 0; // 6 - 12
   let daytime = 0; // 12 - 18
   let evening = 0; // 18 - 24
   let night = 0; // 0 - 6
 
-  committedTimeResponseMap.forEach((committedTimeResponse) => {
-    committedTimeResponse?.data?.repository?.defaultBranchRef?.target?.history?.edges.forEach((edge: Edge) => {
-      const committedDate = edge?.node?.committedDate;
+  committedDatesPerRepo.forEach((committedDates) => {
+    committedDates.forEach((committedDate) => {
       const timeString = new Date(committedDate).toLocaleTimeString('en-US', {
         hour12: false,
         timeZone: process.env.TIMEZONE,
@@ -117,6 +133,8 @@ interface Edge {
 
     return [...prev, line.join(' ')];
   }, [] as string[]);
+
+  console.log(lines.join('\n'));
 
   /**
    * Finally, write into gist
